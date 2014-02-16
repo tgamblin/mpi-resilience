@@ -1,66 +1,63 @@
 // ===========================================================================
-// Step handling
+// MPI process start states
 // ===========================================================================
 
 /*!
- * An MPI Step is a monotonically increasing, per-process value that indicates
- * how far an MPI application has progressed.
+ * An MPI_Start_state tells you under what circumstances a process was
+ * initialized.
  */
-typedef uint64_t MPI_Step;
-
-/*!
- * Applications call this routine to indicate that they have completed a
- * particular resilience step.
- *
- * So that we can determine where to roll back when a fault occurs.
- */
-int MPI_Step_complete(MPI_Step step);
+typedef enum {
+  MPI_START_NEW,        //!< Fresh process with no faults (first start)
+  MPI_START_RESTARTED,  //!< Process restarted due to a fault.
+  MPI_START_ADDED,      //!< Process is new but was added to existing job.
+} MPI_Start_state;
 
 // ===========================================================================
-// Fault notification and reinitialization.
+// Initialization & reinitialization
 // ===========================================================================
 
 /*!
  * This is the function pointer type for the main entry point of a resilient MPI
- * implementation.  An MPI_Main_function is called by MPI_Reinit to start or
+ * implementation.  An MPI_Restart_point is called by MPI_Reinit to start or
  * restart program execution.
  *
  * @param[in] argc          Number of command line arguments.
  * @param[in] argv          Vector of command line arguments.
- * @param[in] restart_step  Step to begin execution from.
+ * @param[in] start_state   How the process started up.
  *
- * If starting for the first time, restart_step will be start_step from
- * MPI_Reinit.
+ * If starting for the first time, start_state will be MPI_START_NEW.
+ * If restarting due to a fault, start_state will be MPI_START_RESTARTED.
+ * If this process was added to replace a failed process in another job,
+ * start_state will be MPI_START_NEW.
  */
-typedef void (*MPI_Main_function)(
-  int argc,
-  char **argv,
-  MPI_Step restart_step);
+typedef void (*MPI_Restart_point)(int argc, char **argv,
+                                  MPI_Start_state start_state);
 
 /*!
  * MPI_Reinit marks the start of a resilient MPI program.  Caller should pass
- * command line arguments, a function to be invoked or re-invoked on resilient
- * start.
+ * command line arguments, and a function to be invoked each time this process
+ * restarts.  The MPI_Restart_point is passed the same arguments each time, but
+ * will be passed a different MPI_Start_state depending on how the fault
+ * occurred.
  *
  * @param[in] argc            number of command line arguments
  * @param[in] argv            Vector of command line arguments
  * @param[in] resilient_main  Start point for resilient program.
- * @param[in] start_step      Default start step for entire program.
  */
 int MPI_Reinit(int argc, char **argv,
-               const MPI_Main_function resilient_main,
-               MPI_Step start_step);
+               const MPI_Restart_point resilient_main);
+
+
+// ===========================================================================
+// Fault notification & polling.
+// ===========================================================================
 
 /*!
  * Indicate an application-detected fault that should trigger cleanup and
  * recovery on all processes.
  *
- * MPI_Fault() runs a consensus protocol so that all processes agree which
- * MPI_Step they should restart from.  The default consensus protocol will agree
- * on the minimum step any process has progressed to.
- *
  * This should have the same behavior as when MPI detects a fault and triggers
- * the recovery process.
+ * the recovery process itself.
  */
 int MPI_Fault();
 
@@ -82,31 +79,40 @@ int MPI_Fault_probe();
 /*!
  * Possible return codes for an MPI cleanup handler.
  */
-typedef int MPI_Cleanup_code;
-#define MPI_CLEANUP_ABORT   0    /*!< Cleanup failed, application aborts. */
-#define MPI_CLEANUP_SUCCESS 0    /*!< Cleanup succeeded, continue rollback. */
+typedef enum {
+  MPI_CLEANUP_ABORT,    //!< Cleanup failed, application aborts.
+  MPI_CLEANUP_SUCCESS,  //!< Cleanup succeeded, continue rollback.
+} MPI_Cleanup_code;
 
 /*!
  * An MPI_cleanup_handler cleans up application- or library-allocated resourcs
  * when an MPI fault occurs.
  *
- * Cleanup handlers follow stack semantics.  That is, they are executed in LIFO
- * order in terms of when MPI_Cleanup_handler_push() was called.
+ * Cleanup handlers follow stack semantics.  A user can push new cleanup handlers
+ * onto the stack as she allocates resources, and if the resources are manually
+ * deallocated, the cleanup handler can be popped off the stack.
  *
- * Each cleanup handler needs to return an MPI_Cleanup_code when it is done.
- * If MPI_CLEANUP_ABORT is returned by any cleanup handler, then we consider
- * this unrecoverable, and the entire application will abort.
+ * When an actual fault occurs, the MPI implementation will pop clenup handlers
+ * off the stack and execute them in LIFO order.  This allows an MPI program to
+ * emulate stack unwinding when a fault occurs, just as an exception handler
+ * would.  It also allows libraries to register their own cleanup code
+ * separately from the main application, preserving composability.
+ *
+ * Each cleanup handler needs to return an MPI_Cleanup_code when it is done.  If
+ * any cleanup handler returns MPI_CLEANUP_ABORT, then the fault is
+ * unrecoverable, and the entire application aborts.
  *
  * When all cleanup handlers return MPI_CLEANUP_SUCCESS, the semantics of
  * "success" are up to the implementor.  For example, a numerical library might
- * register a cleanup handler that returns success, but this means that it has
- * completely reinitialized itself, all library handles held by the application
- * are invalid, and the app needs to restart.  Another library might leave some
- * deallocations to be handled by the application.
+ * completely reinitialize itself, or it may require the application to do some
+ * work to clean up its state, depending on how it is written.  Users of
+ * MPI libraries are responsible for knowing how they need to be cleaned up.
  *
- * @param[in] restart_step  the MPI_Step that we're restoring to.
+ * @param[in]    start_state  State process will start in if cleanup succeeds.
+ * @param[inout] state        Optional user parameter to the cleanup handler.
  */
-typedef MPI_Cleanup_code (*MPI_Cleanup_handler)(MPI_Step restart_step);
+typedef MPI_Cleanup_code (*MPI_Cleanup_handler)(
+  MPI_Start_state start_state, void *state);
 #define MPI_CLEANUP_HANDLER_NULL ((MPI_Cleanup_handler*) 0)
 
 /*!
@@ -114,18 +120,15 @@ typedef MPI_Cleanup_code (*MPI_Cleanup_handler)(MPI_Step restart_step);
  * handler will be executed in LIFO order when a fault occurs, assuming it's not
  * popped before then.
  */
-int MPI_Cleanup_handler_push(const MPI_Cleanup_handler handler);
+int MPI_Cleanup_handler_push(const MPI_Cleanup_handler handler, void *state);
 
 /*!
- * Pop the last registered handler off the cleanup handler stack.
- * If there are no handlers remaining on the stack, then this will
- * write out MPI_CLEANUP_HANDLER_NULL.
+ * Pop the last registered handler off the cleanup handler stack.  If there are
+ * no handlers remaining on the stack, then this call will write out
+ * MPI_CLEANUP_HANDLER_NULL for the handler, and state will be set to NULL.
  *
  * @param[out] handler  Where to store the popped handler.
+ * @param[out] state    State that was to be passed to the handler on invocation.
  */
-int MPI_Cleanup_handler_pop(const MPI_Cleanup_handler *handler);
-
-/*!
- * Delete a particular cleanup handler from the handler stack.
- */
-int MPI_Cleanup_handler_delete(const MPI_Cleanup_handler handler);
+int MPI_Cleanup_handler_pop(
+  const MPI_Cleanup_handler *handler, void **state);
