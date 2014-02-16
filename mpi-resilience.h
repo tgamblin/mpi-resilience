@@ -29,6 +29,16 @@ typedef enum {
  * If restarting due to a fault, start_state will be MPI_START_RESTARTED.
  * If this process was added to replace a failed process in another job,
  * start_state will be MPI_START_NEW.
+ *
+ * Some guarantees on rank order:
+ *
+ * 1. If the size of MPI_COMM_WORLD is the SAME as it was before a fault, then
+ *    ranks of restarted processes will be the same as before the fault, and
+ *    added processes' ranks will be the same as those that failed.
+ *
+ * 2. If the size of MPI_COMM_WORLD is larger or smaller than it was before a
+ *    fault, then there are no guarantees on rank order.
+ *
  */
 typedef void (*MPI_Restart_point)(int argc, char **argv,
                                   MPI_Start_state start_state);
