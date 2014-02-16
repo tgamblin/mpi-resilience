@@ -104,9 +104,9 @@ typedef int MPI_Cleanup_code;
  * are invalid, and the app needs to restart.  Another library might leave some
  * deallocations to be handled by the application.
  *
- * @param[in] start_step  the MPI_Step that we're restoring to.
+ * @param[in] restart_step  the MPI_Step that we're restoring to.
  */
-typedef MPI_Cleanup_code (*MPI_Cleanup_handler)(MPI_Step start_step);
+typedef MPI_Cleanup_code (*MPI_Cleanup_handler)(MPI_Step restart_step);
 #define MPI_CLEANUP_HANDLER_NULL ((MPI_Cleanup_handler*) 0)
 
 /*!
