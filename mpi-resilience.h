@@ -32,11 +32,11 @@ typedef enum {
  *
  * Some guarantees on rank order:
  *
- * 1. If the size of MPI_COMM_WORLD is the SAME as it was before a fault, then
+ * 1. If the size of MPI_COMM_WORLD is the SAME or larger than it was before a fault, then
  *    ranks of restarted processes will be the same as before the fault, and
  *    added processes' ranks will be the same as those that failed.
  *
- * 2. If the size of MPI_COMM_WORLD is larger or smaller than it was before a
+ * 2. If the size of MPI_COMM_WORLD is smaller than it was before a
  *    fault, then there are no guarantees on rank order.
  *
  */
@@ -52,10 +52,10 @@ typedef void (*MPI_Restart_point)(int argc, char **argv,
  *
  * @param[in] argc            number of command line arguments
  * @param[in] argv            Vector of command line arguments
- * @param[in] resilient_main  Start point for resilient program.
+ * @param[in] restart_point   Entry point for restarts.
  */
 int MPI_Reinit(int argc, char **argv,
-               const MPI_Restart_point resilient_main);
+               const MPI_Restart_point restart_point);
 
 
 // ===========================================================================
