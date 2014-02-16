@@ -17,7 +17,7 @@ typedef uint64_t MPI_Step;
 int MPI_Step_complete(MPI_Step step);
 
 // ===========================================================================
-// Step handling
+// Fault notification and reinitialization.
 // ===========================================================================
 
 /*!
