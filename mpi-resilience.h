@@ -32,9 +32,9 @@ typedef enum {
  *
  * Some guarantees on rank order:
  *
- * 1. If the size of MPI_COMM_WORLD is the SAME or larger than it was before a fault, then
- *    ranks of restarted processes will be the same as before the fault, and
- *    added processes' ranks will be the same as those that failed.
+ * 1. If the size of MPI_COMM_WORLD is the SAME or larger than it was before a
+ *    fault, then ranks of restarted processes will be the same as before the
+ *    fault, and added processes' ranks will be the same as those that failed.
  *
  * 2. If the size of MPI_COMM_WORLD is smaller than it was before a
  *    fault, then there are no guarantees on rank order.
@@ -59,7 +59,7 @@ int MPI_Reinit(int argc, char **argv,
 
 
 // ===========================================================================
-// Fault notification & polling.
+// Sending fault notification
 // ===========================================================================
 
 /*!
@@ -70,16 +70,6 @@ int MPI_Reinit(int argc, char **argv,
  * the recovery process itself.
  */
 int MPI_Fault();
-
-
-/*!
- * Test for faults that have occurred since the last MPI call made.  This allows
- * a computation-intensive loop to periodically check for faults so that it does
- * not get too far ahead of other processes.
- *
- * If a fault is detected, then recovery will be initiated.
- */
-int MPI_Fault_probe();
 
 
 // ===========================================================================
@@ -142,3 +132,45 @@ int MPI_Cleanup_handler_push(const MPI_Cleanup_handler handler, void *state);
  */
 int MPI_Cleanup_handler_pop(
   const MPI_Cleanup_handler *handler, void **state);
+
+
+// ===========================================================================
+// Control how fault notifications are received
+// ===========================================================================
+
+/**
+ * Control when fault interrupts are received on the current process.  If
+ * synchronous, faults are only received on entry to MPI routines.  If
+ * asynchronous, faults can be received at any time.  Use synchronous mode to
+ * mask interrupts , e.g. for malloc.
+ */
+typedef enum {
+  MPI_SYNCHRONOUS_FAULTS,
+  MPI_ASYNCHRONOUS_FAULTS
+} MPI_Fault_mode;
+
+
+/*!
+ * Test for faults synchronously.  Can insert this into tight loops in
+ * synchronous mode to avoid having one process run ahead.
+ *
+ * If a fault is detected, this triggers a fault interrupt and entry into the
+ * fault handler.
+ */
+int MPI_Fault_probe();
+
+
+/**
+ * Get current mode for receiving fault interrupts.
+ *
+ * @param[out] mode current MPI fault mode.
+ */
+int MPI_Get_fault_mode(MPI_Fault_mode *mode);
+
+
+/**
+ * Set MPI to the provided mode for receiving fault interrupts.
+ *
+ * @param[in] mode to switch fault event receipt to.
+ */
+int MPI_Set_fault_mode(MPI_Fault_mode mode);
